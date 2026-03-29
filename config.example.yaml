@@ -1,0 +1,7 @@
+log:
+  level: info # debug, info, warn, error
+
+copilot:
+  token: "" # GitHub Copilot token (or set ZZY_COPILOT_TOKEN env var)
+  model: gpt-4o
+  endpoint: https://api.githubcopilot.com/chat/completions
