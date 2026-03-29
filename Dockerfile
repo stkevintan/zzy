@@ -11,8 +11,9 @@ FROM alpine:3.22
 RUN apk add --no-cache \
 	ca-certificates \
 	font-noto-cjk \
-	libreoffice-writer \
-	pandoc
+	python3 \
+	py3-pip && \
+	pip install --no-cache-dir --break-system-packages 'markitdown[pdf,docx]'
 
 COPY --from=builder /zzy /usr/local/bin/zzy
 

@@ -4,7 +4,6 @@ go 1.25.0
 
 require (
 	github.com/corespeed-io/wechatbot/golang v0.0.0-20260324012813-f1aa6b16e5f7
-	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/spf13/viper v1.21.0
 	github.com/xuri/excelize/v2 v2.10.1
 )

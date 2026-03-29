@@ -1,121 +1,49 @@
 package resume
 
 import (
-	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/ledongthuc/pdf"
 )
 
 // ExtractText extracts plain text from a document byte slice.
 // Supported extensions: .pdf, .docx, .doc
 func ExtractText(data []byte, ext string) (string, error) {
 	switch ext {
-	case ".pdf":
-		return extractPDF(data)
-	case ".docx":
-		return extractDOCX(data)
-	case ".doc":
-		return extractDOC(data)
+	case ".pdf", ".docx", ".doc":
+		return extractWithMarkItDown(data, ext)
 	default:
 		return "", fmt.Errorf("unsupported format: %s", ext)
 	}
 }
 
-// extractPDF uses ledongthuc/pdf to extract text from a PDF.
-func extractPDF(data []byte) (string, error) {
-	r, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+// extractWithMarkItDown uses the markitdown CLI to convert a file to markdown.
+func extractWithMarkItDown(data []byte, ext string) (string, error) {
+	tmpDir, err := os.MkdirTemp("", "markitdown-*")
 	if err != nil {
-		return "", fmt.Errorf("pdf open: %w", err)
-	}
-
-	var buf strings.Builder
-	for i := 1; i <= r.NumPage(); i++ {
-		page := r.Page(i)
-		if page.V.IsNull() {
-			continue
-		}
-		text, err := page.GetPlainText(nil)
-		if err != nil {
-			continue
-		}
-		buf.WriteString(text)
-		buf.WriteString("\n")
-	}
-	return normalizeExtractedText(buf.String()), nil
-}
-
-// extractDOCX converts a .docx file to markdown using pandoc.
-func extractDOCX(data []byte) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "docx-extract-*")
-	if err != nil {
-		return "", fmt.Errorf("docx: create temp dir: %w", err)
+		return "", fmt.Errorf("markitdown: create temp dir: %w", err)
 	}
 	defer removeTempDir(tmpDir)
 
-	inputPath := filepath.Join(tmpDir, "input.docx")
+	inputPath := filepath.Join(tmpDir, "input"+ext)
 	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
-		return "", fmt.Errorf("docx: write temp file: %w", err)
+		return "", fmt.Errorf("markitdown: write temp file: %w", err)
 	}
 
-	return extractDOCXFile(inputPath)
-}
-
-func extractDOCXFile(path string) (string, error) {
-	cmd := exec.Command("pandoc",
-		"--from", "docx",
-		"--to", "gfm",
-		"--wrap=none",
-		path,
-	)
+	cmd := exec.Command("markitdown", inputPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("docx: pandoc convert failed: %w\noutput: %s", err, output)
+		return "", fmt.Errorf("markitdown failed: %w\noutput: %s", err, output)
 	}
 
 	text := normalizeExtractedText(string(output))
 	if text == "" {
-		return "", fmt.Errorf("docx: pandoc produced empty output")
+		return "", fmt.Errorf("markitdown produced empty output")
 	}
 	return text, nil
-}
-
-// extractDOC converts a .doc file to .docx using LibreOffice headless,
-// then extracts text from the resulting .docx.
-func extractDOC(data []byte) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "doc-convert-*")
-	if err != nil {
-		return "", fmt.Errorf("doc: create temp dir: %w", err)
-	}
-	defer removeTempDir(tmpDir)
-
-	inputPath := filepath.Join(tmpDir, "input.doc")
-	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
-		return "", fmt.Errorf("doc: write temp file: %w", err)
-	}
-
-	// Convert .doc to .docx using LibreOffice headless
-	cmd := exec.Command("soffice",
-		"--headless",
-		"--convert-to", "docx",
-		"--outdir", tmpDir,
-		inputPath,
-	)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("doc: libreoffice convert failed: %w\noutput: %s", err, output)
-	}
-
-	outputPath := filepath.Join(tmpDir, "input.docx")
-	if _, err := os.Stat(outputPath); err != nil {
-		return "", fmt.Errorf("doc: converted docx missing: %w", err)
-	}
-
-	return extractDOCXFile(outputPath)
 }
 
 func normalizeExtractedText(text string) string {

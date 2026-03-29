@@ -14,6 +14,8 @@ func requireCommand(t *testing.T, name string) {
 }
 
 func TestExtractPDF(t *testing.T) {
+	requireCommand(t, "markitdown")
+
 	data, err := os.ReadFile("../samples/何晓娇地理教师简历.pdf")
 	if err != nil {
 		t.Skip("sample PDF not found:", err)
@@ -29,8 +31,7 @@ func TestExtractPDF(t *testing.T) {
 }
 
 func TestExtractDOC(t *testing.T) {
-	requireCommand(t, "pandoc")
-	requireCommand(t, "soffice")
+	requireCommand(t, "markitdown")
 
 	data, err := os.ReadFile("../samples/任喆烜 语文.doc")
 	if err != nil {
