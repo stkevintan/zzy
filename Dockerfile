@@ -11,7 +11,7 @@ FROM alpine:3.22
 RUN apk add --no-cache \
 	ca-certificates \
 	font-noto-cjk \
-	libreoffice \
+	libreoffice-writer \
 	pandoc
 
 COPY --from=builder /zzy /usr/local/bin/zzy
