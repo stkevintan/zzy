@@ -159,13 +159,14 @@ func (c *Client) handleEvent(ev protocol.Event) {
 	case "delta":
 		msg := extractText(data["message"])
 		if msg != "" {
-			c.accumulateDelta(sessionKey, msg)
+			c.setLatestDelta(sessionKey, msg)
 		}
 	case "final":
-		c.finalize(sessionKey, nil)
+		msg := extractText(data["message"])
+		c.finalize(sessionKey, msg, nil)
 	case "error":
 		errMsg, _ := data["errorMessage"].(string)
-		c.finalize(sessionKey, fmt.Errorf("openclaw chat error: %s", errMsg))
+		c.finalize(sessionKey, "", fmt.Errorf("openclaw chat error: %s", errMsg))
 	}
 }
 
@@ -213,15 +214,19 @@ var (
 	deltas   = make(map[string]string)
 )
 
-func (c *Client) accumulateDelta(sessionKey, msg string) {
+func (c *Client) setLatestDelta(sessionKey, msg string) {
 	deltasMu.Lock()
 	defer deltasMu.Unlock()
 	deltas[sessionKey] = msg
 }
 
-func (c *Client) finalize(sessionKey string, err error) {
+func (c *Client) finalize(sessionKey, finalMsg string, err error) {
 	deltasMu.Lock()
-	text := deltas[sessionKey]
+	// Prefer the final event's message; fall back to the last stored delta.
+	text := finalMsg
+	if text == "" {
+		text = deltas[sessionKey]
+	}
 	delete(deltas, sessionKey)
 	deltasMu.Unlock()
 
