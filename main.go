@@ -27,7 +27,7 @@ func main() {
 
 	ctx := context.Background()
 
-	githubToken, err := copilot.Login()
+	githubToken, err := copilot.Login(cfg.DataDir)
 	if err != nil {
 		slog.Error("copilot login failed", "error", err)
 		os.Exit(1)
@@ -41,7 +41,7 @@ func main() {
 	manager := botmgr.NewManager(
 		ctx,
 		cfg.Log.Level,
-		filepath.Join("data", "bots"),
+		filepath.Join(cfg.DataDir, "bots"),
 		func(bot *wechatbot.Bot, locker *middlewares.Locker) []middlewares.Middleware {
 			return []middlewares.Middleware{
 				&middlewares.LoggingMiddleware{},

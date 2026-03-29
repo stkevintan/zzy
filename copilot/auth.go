@@ -45,9 +45,11 @@ type accessTokenResponse struct {
 // Login performs the GitHub Device Code flow using the Copilot OAuth app
 // and returns a GitHub token that works with the Copilot API.
 // The token is cached to disk for reuse.
-func Login() (string, error) {
+// credentialDir overrides the default credential directory (~/) when non-empty.
+func Login(credentialDir string) (string, error) {
+	credPath := resolveCredentialPath(credentialDir)
 	// Check for cached credential first
-	if token, err := loadCredential(); err == nil && token != "" {
+	if token, err := loadCredential(credPath); err == nil && token != "" {
 		slog.Info("using cached copilot credential")
 		return token, nil
 	}
@@ -90,7 +92,7 @@ func Login() (string, error) {
 		}
 		if done {
 			// Save credential
-			if err := saveCredential(token); err != nil {
+			if err := saveCredential(credPath, token); err != nil {
 				slog.Warn("failed to save copilot credential", "error", err)
 			}
 			fmt.Println("GitHub Copilot authorized successfully!")
@@ -161,12 +163,14 @@ func postFormJSON(endpoint string, data url.Values) ([]byte, error) {
 	return body, nil
 }
 
-func credentialPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, credentialFile)
+func resolveCredentialPath(dir string) string {
+	if dir == "" {
+		dir, _ = os.UserHomeDir()
+	}
+	return filepath.Join(dir, credentialFile)
 }
 
-func saveCredential(githubToken string) error {
+func saveCredential(credPath, githubToken string) error {
 	data, err := json.Marshal(savedCredential{
 		GithubToken: githubToken,
 		CreatedAt:   time.Now().Unix(),
@@ -174,11 +178,11 @@ func saveCredential(githubToken string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(credentialPath(), data, 0o600)
+	return os.WriteFile(credPath, data, 0o600)
 }
 
-func loadCredential() (string, error) {
-	data, err := os.ReadFile(credentialPath())
+func loadCredential(credPath string) (string, error) {
+	data, err := os.ReadFile(credPath)
 	if err != nil {
 		return "", err
 	}

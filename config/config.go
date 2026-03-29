@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	DataDir string        `mapstructure:"data_dir"`
 	Log     LogConfig     `mapstructure:"log"`
 	Copilot CopilotConfig `mapstructure:"copilot"`
 }
@@ -40,6 +41,7 @@ func Load() (*Config, error) {
 	v := viper.New()
 
 	// Defaults
+	v.SetDefault("data_dir", "data")
 	v.SetDefault("log.level", "info")
 	v.SetDefault("copilot.model", "gpt-4o")
 
@@ -47,6 +49,7 @@ func Load() (*Config, error) {
 	v.SetConfigName("config")
 	v.SetConfigType("toml")
 	v.AddConfigPath(".")
+	v.AddConfigPath("/")
 
 	// Environment variables: ZZY_LOG_LEVEL, ZZY_COPILOT_TOKEN, etc.
 	v.SetEnvPrefix("ZZY")
