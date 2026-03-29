@@ -10,6 +10,7 @@ import (
 var headers = []string{
 	"序号",
 	"联系结果",
+	"学科",
 	"姓名",
 	"性别",
 	"身份证号",
@@ -20,6 +21,7 @@ var headers = []string{
 	"最高学历",
 	"手机号码",
 	"职称",
+	"工作年月",
 	"毕业院校（本科）",
 	"本科专业",
 	"毕业院校（硕士）",
@@ -114,10 +116,10 @@ func ExportXLSX(results []Result, sheetName string) (_ []byte, err error) {
 
 	// --- column widths ---
 	colWidths := map[int]float64{
-		1: 6, 2: 10, 3: 10, 4: 6, 5: 22, 6: 6, 7: 6, 8: 14,
-		9: 10, 10: 10, 11: 14, 12: 10, 13: 18, 14: 18, 15: 18,
-		16: 18, 17: 12, 18: 16, 19: 20, 20: 20, 21: 20, 22: 16,
-		23: 16, 24: 14,
+		1: 6, 2: 10, 3: 8, 4: 10, 5: 6, 6: 22, 7: 6, 8: 6, 9: 14,
+		10: 10, 11: 10, 12: 14, 13: 10, 14: 10, 15: 18, 16: 18, 17: 18,
+		18: 18, 19: 12, 20: 16, 21: 20, 22: 20, 23: 20, 24: 16,
+		25: 16, 26: 14,
 	}
 	for col, w := range colWidths {
 		colName, err := excelize.ColumnNumberToName(col)
@@ -140,6 +142,7 @@ func ExportXLSX(results []Result, sheetName string) (_ []byte, err error) {
 		values := []any{
 			i + 1,                                // 序号
 			"",                                   // 联系结果
+			string(e.Subject),                    // 学科
 			string(e.Name),                       // 姓名
 			string(e.Gender),                     // 性别
 			e.IDNumber,                           // 身份证号
@@ -150,6 +153,7 @@ func ExportXLSX(results []Result, sheetName string) (_ []byte, err error) {
 			string(e.HighestEducation),           // 最高学历
 			e.PhoneNumber,                        // 手机号码
 			string(e.ProfessionalTitle),          // 职称
+			e.WorkStartDate,                      // 工作年月
 			e.UndergraduateSchool,                // 毕业院校（本科）
 			e.UndergraduateMajor,                 // 本科专业
 			e.GraduateSchool,                     // 毕业院校（硕士）
@@ -173,8 +177,8 @@ func ExportXLSX(results []Result, sheetName string) (_ []byte, err error) {
 				return nil, fmt.Errorf("set data value %s: %w", cell, err)
 			}
 
-			// Apply CNY style for salary columns (22, 23)
-			if j == 21 || j == 22 {
+			// Apply CNY style for salary columns (24, 25)
+			if j == 23 || j == 24 {
 				if err := f.SetCellStyle(sheetName, cell, cell, cnyStyle); err != nil {
 					return nil, fmt.Errorf("set currency style %s: %w", cell, err)
 				}

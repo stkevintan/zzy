@@ -1,5 +1,24 @@
 package resume
 
+// Subject 学科
+type Subject string
+
+const (
+	SubjectChinese   Subject = "语文"
+	SubjectMath      Subject = "数学"
+	SubjectEnglish   Subject = "英语"
+	SubjectPhysics   Subject = "物理"
+	SubjectChemistry Subject = "化学"
+	SubjectPolitics  Subject = "政治"
+	SubjectBiology   Subject = "生物"
+	SubjectGeography Subject = "地理"
+	SubjectPE        Subject = "体育"
+	SubjectMusic     Subject = "音乐"
+	SubjectArt       Subject = "美术"
+	SubjectDorm      Subject = "宿管"
+	SubjectOther     Subject = "其他"
+)
+
 // Gender 性别
 type Gender string
 
@@ -50,7 +69,7 @@ const (
 
 // ResumeEntry 简历信息表
 type ResumeEntry struct {
-	Subject               string                  `json:"学科"`
+	Subject               Subject                 `json:"学科"`
 	Name                  string                  `json:"姓名"`
 	Gender                Gender                  `json:"性别"`
 	IDNumber              string                  `json:"身份证号"`
