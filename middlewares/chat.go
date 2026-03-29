@@ -12,7 +12,7 @@ import (
 )
 
 type ChatMiddleware struct {
-	bot      *wechatbot.Bot
+	BotClient
 	openclaw *openclaw.Client
 
 	mu       sync.Mutex
@@ -21,9 +21,9 @@ type ChatMiddleware struct {
 
 func NewChatMiddleware(bot *wechatbot.Bot, openclawClient *openclaw.Client) *ChatMiddleware {
 	return &ChatMiddleware{
-		bot:      bot,
-		openclaw: openclawClient,
-		sessions: make(map[string]string),
+		BotClient: BotClient{Bot: bot},
+		openclaw:  openclawClient,
+		sessions:  make(map[string]string),
 	}
 }
 
@@ -56,7 +56,7 @@ func (m *ChatMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.Incom
 	response, err := m.openclaw.Chat(ctx, sessionKey, text)
 	if err != nil {
 		slog.Error("openclaw chat failed", "user_id", msg.UserID, "error", err)
-		m.reply(ctx, msg, "处理消息失败，请稍后重试")
+		m.Reply(ctx, msg, "处理消息失败，请稍后重试")
 		return true
 	}
 
@@ -65,7 +65,7 @@ func (m *ChatMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.Incom
 		response = "我暂时没有可用的回复。"
 	}
 
-	m.reply(ctx, msg, response)
+	m.ReplyChunks(ctx, msg, response)
 	return true
 }
 
@@ -86,11 +86,5 @@ func (m *ChatMiddleware) resetSession(ctx context.Context, msg *wechatbot.Incomi
 	if err := m.openclaw.ResetSession(ctx, sessionKey); err != nil {
 		slog.Warn("failed to reset openclaw session", "user_id", msg.UserID, "error", err)
 	}
-	m.reply(ctx, msg, "已开始新的对话")
-}
-
-func (m *ChatMiddleware) reply(ctx context.Context, msg *wechatbot.IncomingMessage, text string) {
-	if err := m.bot.Reply(ctx, msg, text); err != nil {
-		slog.Error("failed to reply in chat middleware", "user_id", msg.UserID, "error", err)
-	}
+	m.Reply(ctx, msg, "已开始新的对话")
 }

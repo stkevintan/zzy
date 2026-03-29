@@ -53,7 +53,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	opts := []gateway.Option{
 		gateway.WithToken(c.token),
 		gateway.WithRole(protocol.RoleOperator),
-		gateway.WithScopes(protocol.ScopeOperatorRead, protocol.ScopeOperatorWrite),
+		gateway.WithScopes(protocol.ScopeOperatorRead, protocol.ScopeOperatorWrite, protocol.ScopeOperatorAdmin),
 		gateway.WithOnEvent(c.handleEvent),
 	}
 
