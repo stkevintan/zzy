@@ -71,16 +71,21 @@ type task struct {
 type Middleware struct {
 	bot     *wechatbot.Bot
 	copilot *copilot.Client
+	locker  *middlewares.Locker
 
 	mu   sync.Mutex
 	task *task
 }
 
-func NewMiddleware(bot *wechatbot.Bot, copilotClient *copilot.Client) *Middleware {
-	return &Middleware{bot: bot, copilot: copilotClient}
+func NewMiddleware(bot *wechatbot.Bot, copilotClient *copilot.Client, locker *middlewares.Locker) *Middleware {
+	return &Middleware{bot: bot, copilot: copilotClient, locker: locker}
 }
 
 var _ middlewares.Middleware = (*Middleware)(nil)
+
+func (m *Middleware) Name() string {
+	return "resume"
+}
 
 func (m *Middleware) HandleMessage(ctx context.Context, msg *wechatbot.IncomingMessage) bool {
 	switch strings.TrimSpace(msg.Text) {
@@ -122,6 +127,7 @@ func (m *Middleware) start(ctx context.Context, msg *wechatbot.IncomingMessage) 
 		cancel:   cancel,
 		replyMsg: msg,
 	}
+	m.locker.Lock(m.Name())
 
 	m.reply(ctx, msg, "任务创建成功，请在10分钟内发送简历文件（支持 doc/docx/pdf）")
 
@@ -227,6 +233,7 @@ func (m *Middleware) finish(ctx context.Context, t *task) {
 		m.task = nil
 	}
 	m.mu.Unlock()
+	m.locker.Unlock(m.Name())
 
 	t.mu.Lock()
 	results := t.results

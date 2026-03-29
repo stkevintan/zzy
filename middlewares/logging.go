@@ -11,6 +11,10 @@ type LoggingMiddleware struct{}
 
 var _ Middleware = (*LoggingMiddleware)(nil)
 
+func (m *LoggingMiddleware) Name() string {
+	return "logging"
+}
+
 func (m *LoggingMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.IncomingMessage) bool {
 	slog.Info("Received message",
 		"user_id", msg.UserID,

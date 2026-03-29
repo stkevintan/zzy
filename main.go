@@ -39,9 +39,11 @@ func main() {
 
 	creds, _ := bot.Login(ctx, false)
 	slog.Info("Logged in", "account_id", creds.AccountID)
+	locker := middlewares.NewLocker()
 	middlewares := []middlewares.Middleware{
 		&middlewares.LoggingMiddleware{},
-		resume.NewMiddleware(bot, copilotClient),
+		resume.NewMiddleware(bot, copilotClient, locker),
+		middlewares.NewChatMiddleware(bot, copilotClient),
 	}
 
 	bot.OnMessage(func(msg *wechatbot.IncomingMessage) {
@@ -54,6 +56,9 @@ func main() {
 			}
 		}()
 		for _, m := range middlewares {
+			if locker.IsLockedByOther(m.Name()) {
+				continue
+			}
 			if m.HandleMessage(ctx, msg) {
 				return
 			}

@@ -7,5 +7,6 @@ import (
 )
 
 type Middleware interface {
+	Name() string
 	HandleMessage(ctx context.Context, msg *wechatbot.IncomingMessage) bool
 }
