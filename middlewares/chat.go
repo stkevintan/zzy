@@ -2,29 +2,28 @@ package middlewares
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
-	"zzy/copilot"
+	"zzy/openclaw"
 
 	wechatbot "github.com/corespeed-io/wechatbot/golang"
 )
 
-const defaultChatSystemPrompt = `你是一个微信聊天助手。回答要直接、准确、简洁。除非用户要求，否则不要使用复杂格式。`
-
 type ChatMiddleware struct {
-	bot     *wechatbot.Bot
-	copilot *copilot.Client
+	bot      *wechatbot.Bot
+	openclaw *openclaw.Client
 
 	mu       sync.Mutex
-	sessions map[string][]copilot.Message
+	sessions map[string]string // userID -> sessionKey
 }
 
-func NewChatMiddleware(bot *wechatbot.Bot, copilotClient *copilot.Client) *ChatMiddleware {
+func NewChatMiddleware(bot *wechatbot.Bot, openclawClient *openclaw.Client) *ChatMiddleware {
 	return &ChatMiddleware{
 		bot:      bot,
-		copilot:  copilotClient,
-		sessions: make(map[string][]copilot.Message),
+		openclaw: openclawClient,
+		sessions: make(map[string]string),
 	}
 }
 
@@ -45,8 +44,7 @@ func (m *ChatMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.Incom
 	}
 
 	if text == "/new" {
-		m.resetSession(msg.UserID)
-		m.reply(ctx, msg, "已开始新的对话")
+		m.resetSession(ctx, msg)
 		return true
 	}
 
@@ -54,10 +52,10 @@ func (m *ChatMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.Incom
 		return false
 	}
 
-	messages := m.buildConversation(msg.UserID, text)
-	response, err := m.copilot.Chat(ctx, messages)
+	sessionKey := m.getSessionKey(msg.UserID)
+	response, err := m.openclaw.Chat(ctx, sessionKey, text)
 	if err != nil {
-		slog.Error("copilot chat failed", "user_id", msg.UserID, "error", err)
+		slog.Error("openclaw chat failed", "user_id", msg.UserID, "error", err)
 		m.reply(ctx, msg, "处理消息失败，请稍后重试")
 		return true
 	}
@@ -67,44 +65,28 @@ func (m *ChatMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.Incom
 		response = "我暂时没有可用的回复。"
 	}
 
-	m.commitConversation(msg.UserID, text, response)
 	m.reply(ctx, msg, response)
 	return true
 }
 
-func (m *ChatMiddleware) buildConversation(userID, text string) []copilot.Message {
+func (m *ChatMiddleware) getSessionKey(userID string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	history := m.sessions[userID]
-	if len(history) == 0 {
-		history = []copilot.Message{{Role: "system", Content: defaultChatSystemPrompt}}
+	key, ok := m.sessions[userID]
+	if !ok {
+		key = fmt.Sprintf("wechat-%s", userID)
+		m.sessions[userID] = key
 	}
-
-	messages := append([]copilot.Message(nil), history...)
-	messages = append(messages, copilot.Message{Role: "user", Content: text})
-	return messages
+	return key
 }
 
-func (m *ChatMiddleware) commitConversation(userID, userText, assistantText string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	history := m.sessions[userID]
-	if len(history) == 0 {
-		history = []copilot.Message{{Role: "system", Content: defaultChatSystemPrompt}}
+func (m *ChatMiddleware) resetSession(ctx context.Context, msg *wechatbot.IncomingMessage) {
+	sessionKey := m.getSessionKey(msg.UserID)
+	if err := m.openclaw.ResetSession(ctx, sessionKey); err != nil {
+		slog.Warn("failed to reset openclaw session", "user_id", msg.UserID, "error", err)
 	}
-	history = append(history,
-		copilot.Message{Role: "user", Content: userText},
-		copilot.Message{Role: "assistant", Content: assistantText},
-	)
-	m.sessions[userID] = history
-}
-
-func (m *ChatMiddleware) resetSession(userID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.sessions, userID)
+	m.reply(ctx, msg, "已开始新的对话")
 }
 
 func (m *ChatMiddleware) reply(ctx context.Context, msg *wechatbot.IncomingMessage, text string) {

@@ -8,9 +8,10 @@ import (
 )
 
 type Config struct {
-	DataDir string        `mapstructure:"data_dir"`
-	Log     LogConfig     `mapstructure:"log"`
-	Copilot CopilotConfig `mapstructure:"copilot"`
+	DataDir  string         `mapstructure:"data_dir"`
+	Log      LogConfig      `mapstructure:"log"`
+	Copilot  CopilotConfig  `mapstructure:"copilot"`
+	OpenClaw OpenClawConfig `mapstructure:"openclaw"`
 }
 
 type LogConfig struct {
@@ -19,6 +20,11 @@ type LogConfig struct {
 
 type CopilotConfig struct {
 	Model string `mapstructure:"model"`
+}
+
+type OpenClawConfig struct {
+	Host  string `mapstructure:"host"`
+	Token string `mapstructure:"token"`
 }
 
 // SlogLevel converts the configured log level string to slog.Level.

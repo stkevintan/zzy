@@ -9,6 +9,7 @@ import (
 	"zzy/config"
 	"zzy/copilot"
 	"zzy/middlewares"
+	"zzy/openclaw"
 	"zzy/resume"
 
 	wechatbot "github.com/corespeed-io/wechatbot/golang"
@@ -38,6 +39,8 @@ func main() {
 		copilot.WithModel(cfg.Copilot.Model),
 	)
 
+	openclawClient := openclaw.NewClient(cfg.OpenClaw.Host, cfg.OpenClaw.Token)
+
 	manager := botmgr.NewManager(
 		ctx,
 		cfg.Log.Level,
@@ -46,7 +49,7 @@ func main() {
 			return []middlewares.Middleware{
 				&middlewares.LoggingMiddleware{},
 				resume.NewMiddleware(bot, copilotClient, locker),
-				middlewares.NewChatMiddleware(bot, copilotClient),
+				middlewares.NewChatMiddleware(bot, openclawClient),
 			}
 		},
 	)

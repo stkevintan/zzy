@@ -5,3 +5,7 @@ level = "info" # debug, info, warn, error
 
 [copilot]
 model = "gpt-4o"
+
+[openclaw]
+host = "wss://your-openclaw-host.example.com"
+token = "your-gateway-token"
