@@ -31,8 +31,6 @@ func TestExtractPDF(t *testing.T) {
 }
 
 func TestExtractDOC(t *testing.T) {
-	requireCommand(t, "markitdown")
-
 	data, err := os.ReadFile("../samples/任喆烜 语文.doc")
 	if err != nil {
 		t.Skip("sample DOC not found:", err)
