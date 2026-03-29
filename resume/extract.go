@@ -1,11 +1,8 @@
 package resume
 
 import (
-	"archive/zip"
 	"bytes"
-	"encoding/xml"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -50,65 +47,42 @@ func extractPDF(data []byte) (string, error) {
 		buf.WriteString(text)
 		buf.WriteString("\n")
 	}
-	return strings.TrimSpace(buf.String()), nil
+	return normalizeExtractedText(buf.String()), nil
 }
 
-// extractDOCX reads a .docx file (ZIP containing XML) and extracts text.
+// extractDOCX converts a .docx file to markdown using pandoc.
 func extractDOCX(data []byte) (string, error) {
-	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	tmpDir, err := os.MkdirTemp("", "docx-extract-*")
 	if err != nil {
-		return "", fmt.Errorf("docx zip open: %w", err)
+		return "", fmt.Errorf("docx: create temp dir: %w", err)
+	}
+	defer removeTempDir(tmpDir)
+
+	inputPath := filepath.Join(tmpDir, "input.docx")
+	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
+		return "", fmt.Errorf("docx: write temp file: %w", err)
 	}
 
-	for _, f := range r.File {
-		if f.Name == "word/document.xml" {
-			rc, err := f.Open()
-			if err != nil {
-				return "", fmt.Errorf("docx open document.xml: %w", err)
-			}
-			defer func() {
-				if closeErr := rc.Close(); closeErr != nil {
-					slog.Warn("failed to close docx xml reader", "error", closeErr)
-				}
-			}()
-			return parseWordXML(rc)
-		}
-	}
-	return "", fmt.Errorf("docx: word/document.xml not found")
+	return extractDOCXFile(inputPath)
 }
 
-// parseWordXML extracts text from Word's document.xml.
-func parseWordXML(r io.Reader) (string, error) {
-	decoder := xml.NewDecoder(r)
-	var buf strings.Builder
-	var inText bool
-
-	for {
-		tok, err := decoder.Token()
-		if err != nil {
-			break
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			// <w:t> contains the actual text
-			if t.Name.Local == "t" {
-				inText = true
-			}
-		case xml.EndElement:
-			if t.Name.Local == "t" {
-				inText = false
-			}
-			// <w:p> marks a paragraph boundary
-			if t.Name.Local == "p" {
-				buf.WriteString("\n")
-			}
-		case xml.CharData:
-			if inText {
-				buf.Write(t)
-			}
-		}
+func extractDOCXFile(path string) (string, error) {
+	cmd := exec.Command("pandoc",
+		"--from", "docx",
+		"--to", "gfm",
+		"--wrap=none",
+		path,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("docx: pandoc convert failed: %w\noutput: %s", err, output)
 	}
-	return strings.TrimSpace(buf.String()), nil
+
+	text := normalizeExtractedText(string(output))
+	if text == "" {
+		return "", fmt.Errorf("docx: pandoc produced empty output")
+	}
+	return text, nil
 }
 
 // extractDOC converts a .doc file to .docx using LibreOffice headless,
@@ -118,11 +92,7 @@ func extractDOC(data []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("doc: create temp dir: %w", err)
 	}
-	defer func() {
-		if removeErr := os.RemoveAll(tmpDir); removeErr != nil {
-			slog.Warn("failed to remove temp dir", "path", tmpDir, "error", removeErr)
-		}
-	}()
+	defer removeTempDir(tmpDir)
 
 	inputPath := filepath.Join(tmpDir, "input.doc")
 	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
@@ -141,10 +111,24 @@ func extractDOC(data []byte) (string, error) {
 	}
 
 	outputPath := filepath.Join(tmpDir, "input.docx")
-	docxData, err := os.ReadFile(outputPath)
-	if err != nil {
-		return "", fmt.Errorf("doc: read converted docx: %w", err)
+	if _, err := os.Stat(outputPath); err != nil {
+		return "", fmt.Errorf("doc: converted docx missing: %w", err)
 	}
 
-	return extractDOCX(docxData)
+	return extractDOCXFile(outputPath)
+}
+
+func normalizeExtractedText(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	for strings.Contains(text, "\n\n\n") {
+		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(text)
+}
+
+func removeTempDir(path string) {
+	if err := os.RemoveAll(path); err != nil {
+		slog.Warn("failed to remove temp dir", "path", path, "error", err)
+	}
 }

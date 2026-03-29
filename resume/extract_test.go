@@ -2,8 +2,16 @@ package resume
 
 import (
 	"os"
+	"os/exec"
 	"testing"
 )
+
+func requireCommand(t *testing.T, name string) {
+	t.Helper()
+	if _, err := exec.LookPath(name); err != nil {
+		t.Skipf("%s not installed: %v", name, err)
+	}
+}
 
 func TestExtractPDF(t *testing.T) {
 	data, err := os.ReadFile("../samples/何晓娇地理教师简历.pdf")
@@ -21,6 +29,9 @@ func TestExtractPDF(t *testing.T) {
 }
 
 func TestExtractDOC(t *testing.T) {
+	requireCommand(t, "pandoc")
+	requireCommand(t, "soffice")
+
 	data, err := os.ReadFile("../samples/任喆烜 语文.doc")
 	if err != nil {
 		t.Skip("sample DOC not found:", err)

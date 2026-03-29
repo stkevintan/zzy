@@ -12,6 +12,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         libreoffice-writer \
+        pandoc \
         fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
