@@ -157,41 +157,72 @@ func (c *Client) handleEvent(ev protocol.Event) {
 
 	switch state {
 	case "delta":
-		if msg, ok := data["message"].(string); ok && msg != "" {
+		msg := extractText(data["message"])
+		if msg != "" {
 			c.accumulateDelta(sessionKey, msg)
 		}
 	case "final":
-		c.finalize(sessionKey, "", nil)
+		c.finalize(sessionKey, nil)
 	case "error":
 		errMsg, _ := data["errorMessage"].(string)
-		c.finalize(sessionKey, "", fmt.Errorf("openclaw chat error: %s", errMsg))
+		c.finalize(sessionKey, fmt.Errorf("openclaw chat error: %s", errMsg))
 	}
+}
+
+// extractText extracts plain text from a message value that can be:
+//   - a string: "hello"
+//   - an object: {"role":"assistant","content":[{"type":"text","text":"hello"}]}
+func extractText(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return ""
+	}
+	content := obj["content"]
+	// content can be a string
+	if s, ok := content.(string); ok {
+		return s
+	}
+	// content can be an array of parts
+	parts, ok := content.([]any)
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		part, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _ := part["type"].(string); t == "text" {
+			if text, ok := part["text"].(string); ok {
+				b.WriteString(text)
+			}
+		}
+	}
+	return b.String()
 }
 
 var (
 	deltasMu sync.Mutex
-	deltas   = make(map[string]*strings.Builder)
+	deltas   = make(map[string]string)
 )
 
 func (c *Client) accumulateDelta(sessionKey, msg string) {
 	deltasMu.Lock()
 	defer deltasMu.Unlock()
-	b, ok := deltas[sessionKey]
-	if !ok {
-		b = &strings.Builder{}
-		deltas[sessionKey] = b
-	}
-	b.WriteString(msg)
+	deltas[sessionKey] = msg
 }
 
-func (c *Client) finalize(sessionKey string, _ string, err error) {
+func (c *Client) finalize(sessionKey string, err error) {
 	deltasMu.Lock()
-	b := deltas[sessionKey]
-	text := ""
-	if b != nil {
-		text = b.String()
-		delete(deltas, sessionKey)
-	}
+	text := deltas[sessionKey]
+	delete(deltas, sessionKey)
 	deltasMu.Unlock()
 
 	// Signal all pending chat requests for this session
