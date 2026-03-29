@@ -91,7 +91,11 @@ func (c *Client) resolveToken(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("copilot: token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			slog.Warn("failed to close token response body", "error", closeErr)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -130,8 +134,8 @@ type Message struct {
 }
 
 type chatRequest struct {
-	Model          string         `json:"model"`
-	Messages       []Message      `json:"messages"`
+	Model          string          `json:"model"`
+	Messages       []Message       `json:"messages"`
 	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
 
@@ -237,7 +241,11 @@ func (c *Client) do(ctx context.Context, reqBody chatRequest) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("copilot: request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			slog.Warn("failed to close chat response body", "error", closeErr)
+		}
+	}()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,7 +66,11 @@ func extractDOCX(data []byte) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("docx open document.xml: %w", err)
 			}
-			defer rc.Close()
+			defer func() {
+				if closeErr := rc.Close(); closeErr != nil {
+					slog.Warn("failed to close docx xml reader", "error", closeErr)
+				}
+			}()
 			return parseWordXML(rc)
 		}
 	}
@@ -113,7 +118,11 @@ func extractDOC(data []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("doc: create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if removeErr := os.RemoveAll(tmpDir); removeErr != nil {
+			slog.Warn("failed to remove temp dir", "path", tmpDir, "error", removeErr)
+		}
+	}()
 
 	inputPath := filepath.Join(tmpDir, "input.doc")
 	if err := os.WriteFile(inputPath, data, 0o644); err != nil {

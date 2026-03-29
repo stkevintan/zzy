@@ -45,8 +45,14 @@ func main() {
 	}
 
 	bot.OnMessage(func(msg *wechatbot.IncomingMessage) {
-		bot.SendTyping(ctx, creds.UserID)
-		defer bot.StopTyping(ctx, creds.UserID)
+		if err := bot.SendTyping(ctx, creds.UserID); err != nil {
+			slog.Warn("failed to send typing indicator", "error", err)
+		}
+		defer func() {
+			if err := bot.StopTyping(ctx, creds.UserID); err != nil {
+				slog.Warn("failed to stop typing indicator", "error", err)
+			}
+		}()
 		for _, m := range middlewares {
 			if m.HandleMessage(ctx, msg) {
 				return
@@ -100,5 +106,8 @@ func main() {
 		// }
 	})
 
-	bot.Run(ctx)
+	if err := bot.Run(ctx); err != nil {
+		slog.Error("bot stopped", "error", err)
+		os.Exit(1)
+	}
 }

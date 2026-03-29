@@ -123,7 +123,7 @@ func (m *Middleware) start(ctx context.Context, msg *wechatbot.IncomingMessage) 
 		replyMsg: msg,
 	}
 
-	m.bot.Reply(ctx, msg, "任务创建成功，请在10分钟内发送简历文件（支持 doc/docx/pdf）")
+	m.reply(ctx, msg, "任务创建成功，请在10分钟内发送简历文件（支持 doc/docx/pdf）")
 
 	// Watch for timeout in background
 	t := m.task
@@ -142,7 +142,7 @@ func (m *Middleware) stop(ctx context.Context, msg *wechatbot.IncomingMessage) {
 	m.mu.Unlock()
 
 	if t == nil {
-		m.bot.Reply(ctx, msg, "当前没有进行中的简历任务")
+		m.reply(ctx, msg, "当前没有进行中的简历任务")
 		return
 	}
 
@@ -160,7 +160,7 @@ func (m *Middleware) handleFile(ctx context.Context, t *task, msg *wechatbot.Inc
 		ext := strings.ToLower(filepath.Ext(file.FileName))
 		if !resumeExts[ext] {
 			slog.Info("skipping non-resume file", "file", file.FileName, "ext", ext)
-			m.bot.Reply(ctx, msg, fmt.Sprintf("跳过非简历文件: %s（仅支持 doc/docx/pdf）", file.FileName))
+			m.reply(ctx, msg, fmt.Sprintf("跳过非简历文件: %s（仅支持 doc/docx/pdf）", file.FileName))
 			continue
 		}
 
@@ -214,7 +214,7 @@ func (m *Middleware) handleFile(ctx context.Context, t *task, msg *wechatbot.Inc
 			slog.Info("resume processed", "file", f.FileName, "content_len", len(content))
 		}(file)
 
-		m.bot.Reply(ctx, msg, fmt.Sprintf("正在处理: %s", file.FileName))
+		m.reply(ctx, msg, fmt.Sprintf("正在处理: %s", file.FileName))
 	}
 }
 
@@ -233,26 +233,38 @@ func (m *Middleware) finish(ctx context.Context, t *task) {
 	t.mu.Unlock()
 
 	if len(results) == 0 {
-		m.bot.Reply(ctx, t.replyMsg, "任务结束，未收到任何简历文件")
+		m.reply(ctx, t.replyMsg, "任务结束，未收到任何简历文件")
 		return
 	}
 
 	jsonData, err := json.MarshalIndent(results, "", "  ")
 	if err != nil {
-		m.bot.Reply(ctx, t.replyMsg, fmt.Sprintf("JSON序列化失败: %v", err))
+		m.reply(ctx, t.replyMsg, fmt.Sprintf("JSON序列化失败: %v", err))
 		return
 	}
 
-	m.bot.Reply(ctx, t.replyMsg, fmt.Sprintf("共处理 %d 份简历", len(results)))
-	m.bot.ReplyContent(ctx, t.replyMsg, wechatbot.SendFile(jsonData, "resumes.json"))
+	m.reply(ctx, t.replyMsg, fmt.Sprintf("共处理 %d 份简历", len(results)))
+	m.replyContent(ctx, t.replyMsg, wechatbot.SendFile(jsonData, "resumes.json"))
 
 	xlsxData, err := ExportXLSX(results, "")
 	if err != nil {
 		slog.Error("xlsx export failed", "error", err)
-		m.bot.Reply(ctx, t.replyMsg, fmt.Sprintf("XLSX导出失败: %v", err))
+		m.reply(ctx, t.replyMsg, fmt.Sprintf("XLSX导出失败: %v", err))
 		return
 	}
-	m.bot.ReplyContent(ctx, t.replyMsg, wechatbot.SendFile(xlsxData, "简历汇总.xlsx"))
+	m.replyContent(ctx, t.replyMsg, wechatbot.SendFile(xlsxData, "简历汇总.xlsx"))
+}
+
+func (m *Middleware) reply(ctx context.Context, msg *wechatbot.IncomingMessage, text string) {
+	if err := m.bot.Reply(ctx, msg, text); err != nil {
+		slog.Error("failed to reply", "error", err, "text", text)
+	}
+}
+
+func (m *Middleware) replyContent(ctx context.Context, msg *wechatbot.IncomingMessage, content wechatbot.SendContent) {
+	if err := m.bot.ReplyContent(ctx, msg, content); err != nil {
+		slog.Error("failed to reply with content", "error", err)
+	}
 }
 
 func (t *task) addResult(r Result) {

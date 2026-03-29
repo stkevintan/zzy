@@ -35,9 +35,13 @@ var headers = []string{
 }
 
 // ExportXLSX creates an xlsx file from a list of results and returns the raw bytes.
-func ExportXLSX(results []Result, sheetName string) ([]byte, error) {
+func ExportXLSX(results []Result, sheetName string) (_ []byte, err error) {
 	f := excelize.NewFile()
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close xlsx: %w", closeErr)
+		}
+	}()
 
 	if sheetName == "" {
 		sheetName = "简历汇总"
@@ -50,7 +54,7 @@ func ExportXLSX(results []Result, sheetName string) ([]byte, error) {
 	}
 
 	// --- styles ---
-	headerStyle, _ := f.NewStyle(&excelize.Style{
+	headerStyle, err := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Bold: true, Size: 11},
 		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center", WrapText: true},
 		Border: []excelize.Border{
@@ -60,8 +64,11 @@ func ExportXLSX(results []Result, sheetName string) ([]byte, error) {
 			{Type: "bottom", Color: "000000", Style: 1},
 		},
 	})
+	if err != nil {
+		return nil, fmt.Errorf("create header style: %w", err)
+	}
 
-	textStyle, _ := f.NewStyle(&excelize.Style{
+	textStyle, err := f.NewStyle(&excelize.Style{
 		Alignment: &excelize.Alignment{Vertical: "center", WrapText: true},
 		Border: []excelize.Border{
 			{Type: "left", Color: "000000", Style: 1},
@@ -70,8 +77,11 @@ func ExportXLSX(results []Result, sheetName string) ([]byte, error) {
 			{Type: "bottom", Color: "000000", Style: 1},
 		},
 	})
+	if err != nil {
+		return nil, fmt.Errorf("create text style: %w", err)
+	}
 
-	cnyStyle, _ := f.NewStyle(&excelize.Style{
+	cnyStyle, err := f.NewStyle(&excelize.Style{
 		CustomNumFmt: strPtr("￥#,##0.0000"),
 		Alignment:    &excelize.Alignment{Vertical: "center"},
 		Border: []excelize.Border{
@@ -81,14 +91,26 @@ func ExportXLSX(results []Result, sheetName string) ([]byte, error) {
 			{Type: "bottom", Color: "000000", Style: 1},
 		},
 	})
+	if err != nil {
+		return nil, fmt.Errorf("create currency style: %w", err)
+	}
 
 	// --- headers ---
 	for i, h := range headers {
-		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-		f.SetCellValue(sheetName, cell, h)
-		f.SetCellStyle(sheetName, cell, cell, headerStyle)
+		cell, err := excelize.CoordinatesToCellName(i+1, 1)
+		if err != nil {
+			return nil, fmt.Errorf("get header cell name: %w", err)
+		}
+		if err := f.SetCellValue(sheetName, cell, h); err != nil {
+			return nil, fmt.Errorf("set header value %s: %w", cell, err)
+		}
+		if err := f.SetCellStyle(sheetName, cell, cell, headerStyle); err != nil {
+			return nil, fmt.Errorf("set header style %s: %w", cell, err)
+		}
 	}
-	f.SetRowHeight(sheetName, 1, 30)
+	if err := f.SetRowHeight(sheetName, 1, 30); err != nil {
+		return nil, fmt.Errorf("set header row height: %w", err)
+	}
 
 	// --- column widths ---
 	colWidths := map[int]float64{
@@ -98,8 +120,13 @@ func ExportXLSX(results []Result, sheetName string) ([]byte, error) {
 		23: 16, 24: 14,
 	}
 	for col, w := range colWidths {
-		colName, _ := excelize.ColumnNumberToName(col)
-		f.SetColWidth(sheetName, colName, colName, w)
+		colName, err := excelize.ColumnNumberToName(col)
+		if err != nil {
+			return nil, fmt.Errorf("get column name %d: %w", col, err)
+		}
+		if err := f.SetColWidth(sheetName, colName, colName, w); err != nil {
+			return nil, fmt.Errorf("set column width %s: %w", colName, err)
+		}
 	}
 
 	// --- data rows ---
@@ -138,14 +165,23 @@ func ExportXLSX(results []Result, sheetName string) ([]byte, error) {
 		}
 
 		for j, v := range values {
-			cell, _ := excelize.CoordinatesToCellName(j+1, row)
-			f.SetCellValue(sheetName, cell, v)
+			cell, err := excelize.CoordinatesToCellName(j+1, row)
+			if err != nil {
+				return nil, fmt.Errorf("get data cell name row %d col %d: %w", row, j+1, err)
+			}
+			if err := f.SetCellValue(sheetName, cell, v); err != nil {
+				return nil, fmt.Errorf("set data value %s: %w", cell, err)
+			}
 
 			// Apply CNY style for salary columns (22, 23)
 			if j == 21 || j == 22 {
-				f.SetCellStyle(sheetName, cell, cell, cnyStyle)
+				if err := f.SetCellStyle(sheetName, cell, cell, cnyStyle); err != nil {
+					return nil, fmt.Errorf("set currency style %s: %w", cell, err)
+				}
 			} else {
-				f.SetCellStyle(sheetName, cell, cell, textStyle)
+				if err := f.SetCellStyle(sheetName, cell, cell, textStyle); err != nil {
+					return nil, fmt.Errorf("set text style %s: %w", cell, err)
+				}
 			}
 		}
 	}
