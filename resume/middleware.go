@@ -69,7 +69,7 @@ type task struct {
 }
 
 type Middleware struct {
-	bot    *wechatbot.Bot
+	bot     *wechatbot.Bot
 	copilot *copilot.Client
 
 	mu   sync.Mutex
@@ -83,7 +83,7 @@ func NewMiddleware(bot *wechatbot.Bot, copilotClient *copilot.Client) *Middlewar
 var _ middlewares.Middleware = (*Middleware)(nil)
 
 func (m *Middleware) HandleMessage(ctx context.Context, msg *wechatbot.IncomingMessage) bool {
-	switch msg.Text {
+	switch strings.TrimSpace(msg.Text) {
 	case "/resume start":
 		m.start(ctx, msg)
 		return true

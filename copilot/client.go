@@ -6,49 +6,117 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"sync"
+	"time"
 )
 
 const (
-	DefaultEndpoint = "https://api.githubcopilot.com/chat/completions"
-	DefaultModel    = "gpt-4o"
+	defaultModel    = "gpt-4o"
+	tokenURL        = "https://api.github.com/copilot_internal/v2/token"
+	defaultBaseURL  = "https://api.githubcopilot.com"
+	tokenSafeMargin = 5 * time.Minute
 )
 
-// Client is a generic client for OpenAI-compatible chat completions APIs.
+// Client is a GitHub Copilot API client that automatically manages
+// short-lived Copilot API tokens exchanged from a long-lived GitHub token.
 type Client struct {
-	token    string
-	endpoint string
-	model    string
-	client   *http.Client
+	githubToken string
+	model       string
+	httpClient  *http.Client
+
+	mu        sync.Mutex
+	apiToken  string
+	baseURL   string
+	expiresAt time.Time
 }
 
 // Option configures the Client.
 type Option func(*Client)
-
-func WithEndpoint(endpoint string) Option {
-	return func(c *Client) { c.endpoint = endpoint }
-}
 
 func WithModel(model string) Option {
 	return func(c *Client) { c.model = model }
 }
 
 func WithHTTPClient(hc *http.Client) Option {
-	return func(c *Client) { c.client = hc }
+	return func(c *Client) { c.httpClient = hc }
 }
 
 // NewClient creates a new Copilot API client.
-func NewClient(token string, opts ...Option) *Client {
+// githubToken is the long-lived GitHub personal access token (e.g. from `gh auth token`).
+// The client automatically exchanges it for short-lived Copilot API tokens.
+func NewClient(githubToken string, opts ...Option) *Client {
 	c := &Client{
-		token:    token,
-		endpoint: DefaultEndpoint,
-		model:    DefaultModel,
-		client:   http.DefaultClient,
+		githubToken: githubToken,
+		model:       defaultModel,
+		httpClient:  http.DefaultClient,
+		baseURL:     defaultBaseURL,
 	}
 	for _, o := range opts {
 		o(c)
 	}
 	return c
+}
+
+// copilotTokenResponse is the response from the Copilot token exchange endpoint.
+type copilotTokenResponse struct {
+	Token     string `json:"token"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+// resolveToken returns a valid Copilot API token, refreshing if needed.
+func (c *Client) resolveToken(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.apiToken != "" && time.Now().Before(c.expiresAt.Add(-tokenSafeMargin)) {
+		return c.apiToken, nil
+	}
+
+	slog.Debug("exchanging github token for copilot api token")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("copilot: create token request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.githubToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("copilot: token request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("copilot: read token response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("copilot: token exchange failed (HTTP %d): %s", resp.StatusCode, body)
+	}
+
+	var tokenResp copilotTokenResponse
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return "", fmt.Errorf("copilot: unmarshal token response: %w", err)
+	}
+
+	if tokenResp.Token == "" {
+		return "", fmt.Errorf("copilot: token response missing token")
+	}
+
+	c.apiToken = tokenResp.Token
+	// GitHub returns Unix seconds; handle both seconds and milliseconds.
+	if tokenResp.ExpiresAt < 100_000_000_000 {
+		c.expiresAt = time.Unix(tokenResp.ExpiresAt, 0)
+	} else {
+		c.expiresAt = time.UnixMilli(tokenResp.ExpiresAt)
+	}
+
+	slog.Debug("copilot api token acquired", "expires_at", c.expiresAt)
+	return c.apiToken, nil
 }
 
 // Message represents a chat message.
@@ -58,8 +126,8 @@ type Message struct {
 }
 
 type chatRequest struct {
-	Model          string          `json:"model"`
-	Messages       []Message       `json:"messages"`
+	Model          string         `json:"model"`
+	Messages       []Message      `json:"messages"`
 	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
 
@@ -81,12 +149,7 @@ func (c *Client) Chat(ctx context.Context, messages []Message) (string, error) {
 		Model:    c.model,
 		Messages: messages,
 	}
-
-	respMsg, err := c.do(ctx, reqBody)
-	if err != nil {
-		return "", err
-	}
-	return respMsg, nil
+	return c.do(ctx, reqBody)
 }
 
 // Parse sends a system prompt and user content to the completions API with
@@ -114,19 +177,25 @@ func Parse[T any](ctx context.Context, c *Client, systemPrompt, userContent stri
 }
 
 func (c *Client) do(ctx context.Context, reqBody chatRequest) (string, error) {
+	token, err := c.resolveToken(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", fmt.Errorf("copilot: marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	endpoint := c.baseURL + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("copilot: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := c.client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("copilot: request: %w", err)
 	}

@@ -17,9 +17,8 @@ type LogConfig struct {
 }
 
 type CopilotConfig struct {
-	Token    string `mapstructure:"token"`
-	Model    string `mapstructure:"model"`
-	Endpoint string `mapstructure:"endpoint"`
+	GithubToken string `mapstructure:"github_token"`
+	Model       string `mapstructure:"model"`
 }
 
 // SlogLevel converts the configured log level string to slog.Level.
@@ -37,18 +36,17 @@ func (c *LogConfig) SlogLevel() slog.Level {
 }
 
 // Load reads configuration from file and environment variables.
-// It looks for config.yaml in the current directory.
+// It looks for config.toml in the current directory.
 func Load() (*Config, error) {
 	v := viper.New()
 
 	// Defaults
 	v.SetDefault("log.level", "info")
 	v.SetDefault("copilot.model", "gpt-4o")
-	v.SetDefault("copilot.endpoint", "https://api.githubcopilot.com/chat/completions")
 
 	// Config file
 	v.SetConfigName("config")
-	v.SetConfigType("yaml")
+	v.SetConfigType("toml")
 	v.AddConfigPath(".")
 
 	// Environment variables: ZZY_LOG_LEVEL, ZZY_COPILOT_TOKEN, etc.

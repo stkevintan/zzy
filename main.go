@@ -27,9 +27,8 @@ func main() {
 	bot := wechatbot.New()
 
 	copilotClient := copilot.NewClient(
-		cfg.Copilot.Token,
+		cfg.Copilot.GithubToken,
 		copilot.WithModel(cfg.Copilot.Model),
-		copilot.WithEndpoint(cfg.Copilot.Endpoint),
 	)
 
 	creds, _ := bot.Login(ctx, false)
