@@ -120,8 +120,8 @@ func extractDOC(data []byte) (string, error) {
 	cbRgFcLcb := int(binary.LittleEndian.Uint16(wordDoc[pos : pos+2]))
 	pos += 2 // start of fibRgFcLcb pairs
 
-	// fcClx/lcbClx is the 67th pair (index 66)
-	const clxIdx = 66
+	// fcClx/lcbClx is the 34th pair (index 33) in FibRgFcLcb97
+	const clxIdx = 33
 	if cbRgFcLcb <= clxIdx {
 		return "", fmt.Errorf("doc: FIB too old (%d FC/LCB pairs)", cbRgFcLcb)
 	}
