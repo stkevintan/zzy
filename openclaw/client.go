@@ -147,12 +147,7 @@ func (c *Client) handleEvent(ev protocol.Event) {
 		return
 	}
 
-	var data struct {
-		State        string `json:"state"`
-		Message      string `json:"message"`
-		ErrorMessage string `json:"errorMessage"`
-		SessionKey   string `json:"sessionKey"`
-	}
+	var data protocol.ChatEvent
 	if err := json.Unmarshal(ev.Payload, &data); err != nil {
 		slog.Warn("openclaw: failed to parse chat event", "error", err)
 		return
@@ -160,12 +155,36 @@ func (c *Client) handleEvent(ev protocol.Event) {
 
 	switch data.State {
 	case "delta":
-		c.accumulateDelta(data.SessionKey, data.Message)
+		// Message can be a plain string or an object with a "content" field.
+		msg := extractMessage(data.Message)
+		if msg != "" {
+			c.accumulateDelta(data.SessionKey, msg)
+		}
 	case "final":
-		c.finalize(data.SessionKey, "", nil)
+		c.finalize(data.SessionKey, nil)
 	case "error":
-		c.finalize(data.SessionKey, "", fmt.Errorf("openclaw chat error: %s", data.ErrorMessage))
+		c.finalize(data.SessionKey, fmt.Errorf("openclaw chat error: %s", data.ErrorMessage))
 	}
+}
+
+// extractMessage handles the Message field which can be a JSON string or an object.
+func extractMessage(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	// Try plain string first
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	// Try object with "content" field
+	var obj struct {
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(raw, &obj) == nil {
+		return obj.Content
+	}
+	return string(raw)
 }
 
 var (
@@ -184,7 +203,7 @@ func (c *Client) accumulateDelta(sessionKey, msg string) {
 	b.WriteString(msg)
 }
 
-func (c *Client) finalize(sessionKey string, _ string, err error) {
+func (c *Client) finalize(sessionKey string, err error) {
 	deltasMu.Lock()
 	b := deltas[sessionKey]
 	text := ""
