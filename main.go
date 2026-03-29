@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"zzy/botmgr"
 	"zzy/config"
 	"zzy/copilot"
 	"zzy/middlewares"
@@ -24,7 +26,6 @@ func main() {
 	})))
 
 	ctx := context.Background()
-	bot := wechatbot.New()
 
 	githubToken, err := copilot.Login()
 	if err != nil {
@@ -37,81 +38,34 @@ func main() {
 		copilot.WithModel(cfg.Copilot.Model),
 	)
 
-	creds, _ := bot.Login(ctx, false)
-	slog.Info("Logged in", "account_id", creds.AccountID)
-	locker := middlewares.NewLocker()
-	middlewares := []middlewares.Middleware{
-		&middlewares.LoggingMiddleware{},
-		resume.NewMiddleware(bot, copilotClient, locker),
-		middlewares.NewChatMiddleware(bot, copilotClient),
+	manager := botmgr.NewManager(
+		ctx,
+		cfg.Log.Level,
+		filepath.Join("data", "bots"),
+		func(bot *wechatbot.Bot, locker *middlewares.Locker) []middlewares.Middleware {
+			return []middlewares.Middleware{
+				&middlewares.LoggingMiddleware{},
+				resume.NewMiddleware(bot, copilotClient, locker),
+				middlewares.NewChatMiddleware(bot, copilotClient),
+			}
+		},
+	)
+
+	masterBot, err := manager.CreateBot("master", true)
+	if err != nil {
+		slog.Error("failed to create master bot", "error", err)
+		os.Exit(1)
 	}
+	masterBot.AddMiddleware(botmgr.NewMiddleware(manager, masterBot.Bot()))
 
-	bot.OnMessage(func(msg *wechatbot.IncomingMessage) {
-		if err := bot.SendTyping(ctx, creds.UserID); err != nil {
-			slog.Warn("failed to send typing indicator", "error", err)
-		}
-		defer func() {
-			if err := bot.StopTyping(ctx, creds.UserID); err != nil {
-				slog.Warn("failed to stop typing indicator", "error", err)
-			}
-		}()
-		for _, m := range middlewares {
-			if locker.IsLockedByOther(m.Name()) {
-				continue
-			}
-			if m.HandleMessage(ctx, msg) {
-				return
-			}
-		}
-		// // Download and save images
-		// for i, img := range msg.Images {
-		// 	fmt.Printf("Image[%d]: %dx%d, AESKey=%s\n", i, img.Width, img.Height, img.AESKey)
+	creds, err := masterBot.Login(ctx, false)
+	if err != nil {
+		slog.Error("master bot login failed", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("master bot logged in", "account_id", creds.AccountID)
 
-		// 	// Option 1: Download specific image (handles CDN fetch + AES-128-ECB decryption)
-		// 	media, err := bot.DownloadRaw(ctx, img.Media, img.AESKey)
-		// 	if err != nil {
-		// 		fmt.Printf("  download error: %v\n", err)
-		// 		continue
-		// 	}
-
-		// 	outPath := filepath.Join("images", fmt.Sprintf("%s_%d.jpg", msg.UserID, i))
-		// 	os.MkdirAll(filepath.Dir(outPath), 0o755)
-		// 	if err := os.WriteFile(outPath, media, 0o644); err != nil {
-		// 		fmt.Printf("  save error: %v\n", err)
-		// 		continue
-		// 	}
-		// 	fmt.Printf("  saved to %s (%d bytes)\n", outPath, len(media))
-		// }
-		// for _, voice := range msg.Voices {
-		// 	fmt.Printf("Voice text: %s (%dms)\n", voice.Text, voice.DurationMs)
-		// }
-		// for i, file := range msg.Files {
-		// 	fmt.Printf("File[%d]: %s (%d bytes)\n", i, file.FileName, file.Size)
-
-		// 	media, err := bot.DownloadRaw(ctx, file.Media, "")
-		// 	if err != nil {
-		// 		fmt.Printf("  download error: %v\n", err)
-		// 		continue
-		// 	}
-
-		// 	outPath := filepath.Join("files", file.FileName)
-		// 	os.MkdirAll(filepath.Dir(outPath), 0o755)
-		// 	if err := os.WriteFile(outPath, media, 0o644); err != nil {
-		// 		fmt.Printf("  save error: %v\n", err)
-		// 		continue
-		// 	}
-		// 	fmt.Printf("  saved to %s (%d bytes)\n", outPath, len(media))
-		// }
-		// if msg.QuotedMessage != nil {
-		// 	fmt.Printf("Quoted: %s\n", msg.QuotedMessage.Title)
-		// }
-		// if msg.Type == "text" {
-		// 	bot.Reply(ctx, msg, fmt.Sprintf("Echo %s", msg.Text))
-		// 	bot.Reply(ctx, msg, "Done")
-		// }
-	})
-
-	if err := bot.Run(ctx); err != nil {
+	if err := masterBot.Start(ctx); err != nil {
 		slog.Error("bot stopped", "error", err)
 		os.Exit(1)
 	}
