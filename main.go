@@ -39,7 +39,7 @@ func main() {
 		copilot.WithModel(cfg.Copilot.Model),
 	)
 
-	openclawClient := openclaw.NewClient(cfg.OpenClaw.Host, cfg.OpenClaw.Token)
+	openclawClient := openclaw.NewClient(cfg.OpenClaw.Host, cfg.OpenClaw.Token, filepath.Join(cfg.DataDir, "openclaw-identity"))
 
 	manager := botmgr.NewManager(
 		ctx,

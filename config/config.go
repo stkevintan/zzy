@@ -50,6 +50,8 @@ func Load() (*Config, error) {
 	v.SetDefault("data_dir", "data")
 	v.SetDefault("log.level", "info")
 	v.SetDefault("copilot.model", "gpt-4o")
+	v.SetDefault("openclaw.host", "")
+	v.SetDefault("openclaw.token", "")
 
 	// Config file
 	v.SetConfigName("config")

@@ -10,13 +10,15 @@ import (
 	"time"
 
 	"github.com/a3tai/openclaw-go/gateway"
+	"github.com/a3tai/openclaw-go/identity"
 	"github.com/a3tai/openclaw-go/protocol"
 )
 
 // Client wraps an OpenClaw gateway connection for chat.
 type Client struct {
-	host  string
-	token string
+	host        string
+	token       string
+	identityDir string
 
 	mu     sync.Mutex
 	client *gateway.Client
@@ -30,11 +32,12 @@ type chatResult struct {
 	err  error
 }
 
-func NewClient(host, token string) *Client {
+func NewClient(host, token, identityDir string) *Client {
 	return &Client{
-		host:     host,
-		token:    token,
-		chatDone: make(map[string]chan chatResult),
+		host:        host,
+		token:       token,
+		identityDir: identityDir,
+		chatDone:    make(map[string]chan chatResult),
 	}
 }
 
@@ -47,12 +50,29 @@ func (c *Client) Connect(ctx context.Context) error {
 		return nil
 	}
 
-	client := gateway.NewClient(
+	opts := []gateway.Option{
 		gateway.WithToken(c.token),
 		gateway.WithRole(protocol.RoleOperator),
 		gateway.WithScopes(protocol.ScopeOperatorRead, protocol.ScopeOperatorWrite),
 		gateway.WithOnEvent(c.handleEvent),
-	)
+	}
+
+	// Load or generate device identity so the gateway preserves our scopes.
+	if c.identityDir != "" {
+		store, err := identity.NewStore(c.identityDir)
+		if err != nil {
+			return fmt.Errorf("openclaw: identity store: %w", err)
+		}
+		id, err := store.LoadOrGenerate()
+		if err != nil {
+			return fmt.Errorf("openclaw: load identity: %w", err)
+		}
+		deviceToken := store.LoadDeviceToken()
+		opts = append(opts, gateway.WithIdentity(id, deviceToken))
+		slog.Debug("openclaw identity loaded", "device_id", id.DeviceID)
+	}
+
+	client := gateway.NewClient(opts...)
 
 	if err := client.Connect(ctx, c.host); err != nil {
 		return fmt.Errorf("openclaw: connect: %w", err)
