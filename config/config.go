@@ -17,8 +17,7 @@ type LogConfig struct {
 }
 
 type CopilotConfig struct {
-	GithubToken string `mapstructure:"github_token"`
-	Model       string `mapstructure:"model"`
+	Model string `mapstructure:"model"`
 }
 
 // SlogLevel converts the configured log level string to slog.Level.

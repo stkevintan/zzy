@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -82,6 +83,9 @@ func (c *Client) resolveToken(ctx context.Context) (string, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.githubToken)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Editor-Version", "vscode/1.96.2")
+	req.Header.Set("User-Agent", "GitHubCopilotChat/0.26.7")
+	req.Header.Set("X-Github-Api-Version", "2025-04-01")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -169,9 +173,40 @@ func Parse[T any](ctx context.Context, c *Client, systemPrompt, userContent stri
 		return nil, err
 	}
 
-	var result T
-	if err := json.Unmarshal([]byte(respMsg), &result); err != nil {
+	// Pre-process: coerce types to be flexible with LLM output.
+	// Convert float64 → string (for string fields) and string-encoded numbers → float64 (for int fields).
+	// json.Unmarshal will then handle the correct mapping.
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(respMsg), &raw); err != nil {
 		return nil, fmt.Errorf("copilot: unmarshal result: %w", err)
+	}
+
+	// First pass: try unmarshalling as-is to detect type mismatches
+	firstTry, _ := json.Marshal(raw)
+	var result T
+	if err := json.Unmarshal(firstTry, &result); err != nil {
+		// Apply type coercion and retry
+		for k, v := range raw {
+			switch val := v.(type) {
+			case float64:
+				// Keep as float64 but also provide string form
+				raw[k] = fmt.Sprintf("%v", val)
+			case string:
+				// Try converting string to number for numeric fields
+				if n, err := strconv.ParseFloat(val, 64); err == nil {
+					raw[k] = n
+				}
+			}
+		}
+		normalized, err := json.Marshal(raw)
+		if err != nil {
+			return nil, fmt.Errorf("copilot: re-marshal result: %w", err)
+		}
+
+		// Second attempt — if this also fails, try the opposite coercion
+		if err := json.Unmarshal(normalized, &result); err != nil {
+			return nil, fmt.Errorf("copilot: unmarshal result: %w", err)
+		}
 	}
 	return &result, nil
 }
@@ -194,6 +229,9 @@ func (c *Client) do(ctx context.Context, reqBody chatRequest) (string, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Editor-Version", "vscode/1.96.2")
+	req.Header.Set("User-Agent", "GitHubCopilotChat/0.26.7")
+	req.Header.Set("X-Github-Api-Version", "2025-04-01")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

@@ -3,15 +3,15 @@ package resume
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/binary"
 	"encoding/xml"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
-	"unicode/utf16"
 
 	"github.com/ledongthuc/pdf"
-	"github.com/richardlehane/mscfb"
 )
 
 // ExtractText extracts plain text from a document byte slice.
@@ -106,104 +106,36 @@ func parseWordXML(r io.Reader) (string, error) {
 	return strings.TrimSpace(buf.String()), nil
 }
 
-// extractDOC extracts text from an old binary .doc file using OLE2/CFB parsing.
-// It reads the WordDocument stream and extracts UTF-16LE encoded text.
+// extractDOC converts a .doc file to .docx using LibreOffice headless,
+// then extracts text from the resulting .docx.
 func extractDOC(data []byte) (string, error) {
-	doc, err := mscfb.New(bytes.NewReader(data))
+	tmpDir, err := os.MkdirTemp("", "doc-convert-*")
 	if err != nil {
-		return "", fmt.Errorf("doc cfb open: %w", err)
+		return "", fmt.Errorf("doc: create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	inputPath := filepath.Join(tmpDir, "input.doc")
+	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
+		return "", fmt.Errorf("doc: write temp file: %w", err)
 	}
 
-	for entry, err := doc.Next(); err == nil; entry, err = doc.Next() {
-		name := entry.Name
-		if name == "WordDocument" {
-			return extractWordDocText(entry)
-		}
+	// Convert .doc to .docx using LibreOffice headless
+	cmd := exec.Command("soffice",
+		"--headless",
+		"--convert-to", "docx",
+		"--outdir", tmpDir,
+		inputPath,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("doc: libreoffice convert failed: %w\noutput: %s", err, output)
 	}
 
-	// Fallback: try to find any text stream
-	return "", fmt.Errorf("doc: WordDocument stream not found")
-}
-
-// extractWordDocText attempts to extract readable text from the WordDocument stream.
-// The .doc binary format stores text as UTF-16LE in the text portion of the stream.
-func extractWordDocText(r io.Reader) (string, error) {
-	data, err := io.ReadAll(r)
+	outputPath := filepath.Join(tmpDir, "input.docx")
+	docxData, err := os.ReadFile(outputPath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("doc: read converted docx: %w", err)
 	}
 
-	// The FIB (File Information Block) starts at offset 0.
-	// We need at least the first few fields to find the text.
-	if len(data) < 24 {
-		return "", fmt.Errorf("doc: WordDocument stream too short")
-	}
-
-	// Try to extract text directly from the stream as UTF-16LE sequences.
-	// This is a best-effort approach for the binary .doc format.
-	return extractUTF16Text(data), nil
-}
-
-// extractUTF16Text scans binary data for UTF-16LE encoded text sequences.
-func extractUTF16Text(data []byte) string {
-	var buf strings.Builder
-	var u16buf []uint16
-
-	// Scan for UTF-16LE characters (common in .doc text streams)
-	for i := 0; i+1 < len(data); i += 2 {
-		ch := binary.LittleEndian.Uint16(data[i : i+2])
-
-		// Printable character ranges (ASCII + CJK + common punctuation)
-		if isPrintableUTF16(ch) {
-			u16buf = append(u16buf, ch)
-		} else {
-			if len(u16buf) >= 4 { // only keep sequences of 4+ chars
-				runes := utf16.Decode(u16buf)
-				buf.WriteString(string(runes))
-				buf.WriteString("\n")
-			}
-			u16buf = u16buf[:0]
-		}
-	}
-	if len(u16buf) >= 4 {
-		runes := utf16.Decode(u16buf)
-		buf.WriteString(string(runes))
-	}
-
-	return strings.TrimSpace(buf.String())
-}
-
-func isPrintableUTF16(ch uint16) bool {
-	// ASCII printable + whitespace
-	if ch >= 0x20 && ch <= 0x7E {
-		return true
-	}
-	if ch == '\t' || ch == '\n' || ch == '\r' {
-		return true
-	}
-	// CJK Unified Ideographs
-	if ch >= 0x4E00 && ch <= 0x9FFF {
-		return true
-	}
-	// CJK punctuation and symbols
-	if ch >= 0x3000 && ch <= 0x303F {
-		return true
-	}
-	// Fullwidth forms (fullwidth ASCII, etc.)
-	if ch >= 0xFF00 && ch <= 0xFFEF {
-		return true
-	}
-	// CJK Compatibility Ideographs
-	if ch >= 0xF900 && ch <= 0xFAFF {
-		return true
-	}
-	// Hangul, Katakana, Hiragana (for completeness)
-	if ch >= 0x3040 && ch <= 0x30FF {
-		return true
-	}
-	// General CJK range
-	if ch >= 0x2E80 && ch <= 0x2FFF {
-		return true
-	}
-	return false
+	return extractDOCX(docxData)
 }

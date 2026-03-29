@@ -2,5 +2,4 @@
 level = "info" # debug, info, warn, error
 
 [copilot]
-github_token = "" # GitHub token from `gh auth token` (or set ZZY_COPILOT_GITHUB_TOKEN env var)
 model = "gpt-4o"

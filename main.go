@@ -26,8 +26,14 @@ func main() {
 	ctx := context.Background()
 	bot := wechatbot.New()
 
+	githubToken, err := copilot.Login()
+	if err != nil {
+		slog.Error("copilot login failed", "error", err)
+		os.Exit(1)
+	}
+
 	copilotClient := copilot.NewClient(
-		cfg.Copilot.GithubToken,
+		githubToken,
 		copilot.WithModel(cfg.Copilot.Model),
 	)
 
