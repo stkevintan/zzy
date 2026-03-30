@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"zzy/middlewares"
 
@@ -38,8 +39,16 @@ func (m *BotMgrMiddleware) OnStart(ctx context.Context) {
 		if _, err := m.manager.GetBot(name); err == nil {
 			continue
 		}
-		if _, err := m.manager.CreateBot(name, false); err != nil {
+		runtime, err := m.manager.CreateBot(name, false)
+		if err != nil {
 			continue
+		}
+		// auto login & start if credentials file exists
+		credPath := filepath.Join(m.manager.credBaseDir, name, "credentials.json")
+		if _, err := os.Stat(credPath); err == nil {
+			if err := m.manager.LoginAndStartAsync(name); err != nil {
+				runtime.logf("warn", "auto login failed: %v", err)
+			}
 		}
 	}
 }
