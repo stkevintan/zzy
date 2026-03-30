@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -151,6 +152,30 @@ type choice struct {
 	Message Message `json:"message"`
 }
 
+type responsesRequest struct {
+	Model string         `json:"model"`
+	Input []Message      `json:"input"`
+	Text  *responsesText `json:"text,omitempty"`
+}
+
+type responsesText struct {
+	Format responseFormat `json:"format"`
+}
+
+type responsesResponse struct {
+	Output []responsesOutput `json:"output"`
+}
+
+type responsesOutput struct {
+	Type    string             `json:"type"`
+	Content []responsesContent `json:"content"`
+}
+
+type responsesContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 // Chat sends messages to the completions API and returns the text response.
 func (c *Client) Chat(ctx context.Context, messages []Message) (string, error) {
 	reqBody := chatRequest{
@@ -221,6 +246,23 @@ func (c *Client) do(ctx context.Context, reqBody chatRequest) (string, error) {
 		return "", err
 	}
 
+	result, err := c.doResponses(ctx, token, reqBody)
+	if err != nil && strings.Contains(err.Error(), "unsupported_api_for_model") {
+		slog.Info("model not supported via /responses, falling back to /chat/completions", "model", reqBody.Model)
+		return c.doChatCompletions(ctx, token, reqBody)
+	}
+	return result, err
+}
+
+func (c *Client) setHeaders(req *http.Request, token string) {
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Editor-Version", "vscode/1.96.2")
+	req.Header.Set("User-Agent", "GitHubCopilotChat/0.26.7")
+	req.Header.Set("X-Github-Api-Version", "2025-04-01")
+}
+
+func (c *Client) doChatCompletions(ctx context.Context, token string, reqBody chatRequest) (string, error) {
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", fmt.Errorf("copilot: marshal request: %w", err)
@@ -231,11 +273,7 @@ func (c *Client) do(ctx context.Context, reqBody chatRequest) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("copilot: create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Editor-Version", "vscode/1.96.2")
-	req.Header.Set("User-Agent", "GitHubCopilotChat/0.26.7")
-	req.Header.Set("X-Github-Api-Version", "2025-04-01")
+	c.setHeaders(req, token)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -266,4 +304,63 @@ func (c *Client) do(ctx context.Context, reqBody chatRequest) (string, error) {
 	}
 
 	return chatResp.Choices[0].Message.Content, nil
+}
+
+func (c *Client) doResponses(ctx context.Context, token string, reqBody chatRequest) (string, error) {
+	rr := responsesRequest{
+		Model: reqBody.Model,
+		Input: reqBody.Messages,
+	}
+	if reqBody.ResponseFormat != nil {
+		rr.Text = &responsesText{Format: *reqBody.ResponseFormat}
+	}
+
+	body, err := json.Marshal(rr)
+	if err != nil {
+		return "", fmt.Errorf("copilot: marshal request: %w", err)
+	}
+
+	endpoint := c.baseURL + "/responses"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("copilot: create request: %w", err)
+	}
+	c.setHeaders(req, token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("copilot: request: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			slog.Warn("failed to close responses body", "error", closeErr)
+		}
+	}()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("copilot: read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("copilot: status %d: %s", resp.StatusCode, respBody)
+	}
+
+	var rResp responsesResponse
+	if err := json.Unmarshal(respBody, &rResp); err != nil {
+		return "", fmt.Errorf("copilot: unmarshal response: %w", err)
+	}
+
+	for _, out := range rResp.Output {
+		if out.Type != "message" {
+			continue
+		}
+		for _, c := range out.Content {
+			if c.Type == "output_text" {
+				return c.Text, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("copilot: empty response")
 }

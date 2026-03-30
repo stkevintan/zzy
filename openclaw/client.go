@@ -97,6 +97,15 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Reconnect closes the existing connection and establishes a new one.
+func (c *Client) Reconnect(ctx context.Context) error {
+	_ = c.Close()
+	c.mu.Lock()
+	c.client = nil
+	c.mu.Unlock()
+	return c.Connect(ctx)
+}
+
 // Chat sends a message and waits for the complete response.
 func (c *Client) Chat(ctx context.Context, sessionKey, message string) (string, error) {
 	if err := c.Connect(ctx); err != nil {

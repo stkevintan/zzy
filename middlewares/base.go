@@ -19,6 +19,15 @@ type Starter interface {
 	OnStart(ctx context.Context)
 }
 
+// GetPriority returns the priority of a middleware.
+// Smaller values run first. Default is 1.
+func GetPriority(m Middleware) int {
+	if p, ok := m.(interface{ Priority() int }); ok {
+		return p.Priority()
+	}
+	return 1
+}
+
 // BotClient provides common reply helpers for middlewares.
 type BotClient struct {
 	Bot *wechatbot.Bot

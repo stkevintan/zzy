@@ -15,6 +15,10 @@ func (m *LoggingMiddleware) Name() string {
 	return "logging"
 }
 
+func (m *LoggingMiddleware) Priority() int {
+	return 0
+}
+
 func (m *LoggingMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.IncomingMessage) bool {
 	slog.Info("Received message",
 		"user_id", msg.UserID,
