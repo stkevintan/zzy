@@ -272,8 +272,7 @@ func (r *Runtime) handleMessage(msg *wechatbot.IncomingMessage) {
 		}
 	}()
 
-	middlewares := r.snapshotMiddlewares()
-	for _, middleware := range middlewares {
+	for _, middleware := range r.snapshotMiddlewares() {
 		if r.locker.IsLockedByOther(middleware.Name()) {
 			continue
 		}
@@ -368,7 +367,11 @@ func (r *Runtime) markStopped() {
 func (r *Runtime) snapshotMiddlewares() []middlewares.Middleware {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return append([]middlewares.Middleware(nil), r.middlewares...)
+	snapshot := append([]middlewares.Middleware(nil), r.middlewares...)
+	sort.Slice(snapshot, func(i, j int) bool {
+		return middlewares.GetPriority(snapshot[i]) < middlewares.GetPriority(snapshot[j])
+	})
+	return snapshot
 }
 
 func (r *Runtime) logf(level, format string, args ...any) {

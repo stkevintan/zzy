@@ -33,6 +33,10 @@ func (m *ChatMiddleware) Name() string {
 	return "chat"
 }
 
+func (m *ChatMiddleware) Priority() int {
+	return 100
+}
+
 func (m *ChatMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.IncomingMessage) bool {
 	if msg.Type != wechatbot.ContentText {
 		return false
