@@ -3,6 +3,7 @@ package botmgr
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"zzy/middlewares"
 
@@ -22,6 +23,26 @@ func NewMiddleware(manager *Manager, bot *wechatbot.Bot) *BotMgrMiddleware {
 }
 
 var _ middlewares.Middleware = (*BotMgrMiddleware)(nil)
+
+func (m *BotMgrMiddleware) OnStart(ctx context.Context) {
+	entries, err := os.ReadDir(m.manager.credBaseDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		// skip bots that already exist (e.g. master)
+		if _, err := m.manager.GetBot(name); err == nil {
+			continue
+		}
+		if _, err := m.manager.CreateBot(name, false); err != nil {
+			continue
+		}
+	}
+}
 
 func (m *BotMgrMiddleware) Name() string {
 	return "botmgr"

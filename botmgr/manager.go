@@ -214,6 +214,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	defer r.markStopped()
 
+	r.onStart(ctx)
 	r.logf("info", "poll loop starting")
 	err := r.bot.Run(ctx)
 	if err != nil {
@@ -231,6 +232,7 @@ func (r *Runtime) StartAsync() error {
 
 	go func() {
 		defer r.markStopped()
+		r.onStart(r.manager.ctx)
 		r.logf("info", "poll loop starting")
 		if err := r.bot.Run(r.manager.ctx); err != nil {
 			r.logf("error", "poll loop stopped with error: %v", err)
@@ -363,6 +365,14 @@ func (r *Runtime) markStopped() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.running = false
+}
+
+func (r *Runtime) onStart(ctx context.Context) {
+	for _, mw := range r.snapshotMiddlewares() {
+		if s, ok := mw.(middlewares.Starter); ok {
+			s.OnStart(ctx)
+		}
+	}
 }
 
 func (r *Runtime) snapshotMiddlewares() []middlewares.Middleware {

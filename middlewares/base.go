@@ -13,6 +13,12 @@ type Middleware interface {
 	HandleMessage(ctx context.Context, msg *wechatbot.IncomingMessage) bool
 }
 
+// Starter is an optional interface that middlewares can implement
+// to execute logic when the bot starts running.
+type Starter interface {
+	OnStart(ctx context.Context)
+}
+
 // BotClient provides common reply helpers for middlewares.
 type BotClient struct {
 	Bot *wechatbot.Bot
