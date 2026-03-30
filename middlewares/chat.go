@@ -43,17 +43,17 @@ func (m *ChatMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.Incom
 		return false
 	}
 
-	if text == "/new" {
-		m.resetSession(ctx, msg)
-		return true
-	}
-
-	if strings.HasPrefix(text, "/") {
-		return false
-	}
-
 	sessionKey := m.getSessionKey(msg.UserID)
 	response, err := m.openclaw.Chat(ctx, sessionKey, text)
+	if err != nil && strings.Contains(err.Error(), "websocket: close sent") {
+		slog.Warn("websocket closed, reconnecting", "user_id", msg.UserID)
+		if rerr := m.openclaw.Reconnect(ctx); rerr != nil {
+			slog.Error("openclaw reconnect failed", "user_id", msg.UserID, "error", rerr)
+			m.Reply(ctx, msg, "处理消息失败，请稍后重试")
+			return true
+		}
+		response, err = m.openclaw.Chat(ctx, sessionKey, text)
+	}
 	if err != nil {
 		slog.Error("openclaw chat failed", "user_id", msg.UserID, "error", err)
 		m.Reply(ctx, msg, "处理消息失败，请稍后重试")
@@ -79,12 +79,4 @@ func (m *ChatMiddleware) getSessionKey(userID string) string {
 		m.sessions[userID] = key
 	}
 	return key
-}
-
-func (m *ChatMiddleware) resetSession(ctx context.Context, msg *wechatbot.IncomingMessage) {
-	sessionKey := m.getSessionKey(msg.UserID)
-	if err := m.openclaw.ResetSession(ctx, sessionKey); err != nil {
-		slog.Warn("failed to reset openclaw session", "user_id", msg.UserID, "error", err)
-	}
-	m.Reply(ctx, msg, "已开始新的对话")
 }
