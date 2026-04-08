@@ -107,7 +107,8 @@ func (c *Client) Reconnect(ctx context.Context) error {
 }
 
 // Chat sends a message and waits for the complete response.
-func (c *Client) Chat(ctx context.Context, sessionKey, message string) (string, error) {
+// Optional attachments can be provided as a JSON-encoded array.
+func (c *Client) Chat(ctx context.Context, sessionKey, message string, attachments ...json.RawMessage) (string, error) {
 	if err := c.Connect(ctx); err != nil {
 		return "", err
 	}
@@ -125,11 +126,16 @@ func (c *Client) Chat(ctx context.Context, sessionKey, message string) (string, 
 		c.chatMu.Unlock()
 	}()
 
-	_, err := c.client.ChatSend(ctx, protocol.ChatSendParams{
+	params := protocol.ChatSendParams{
 		SessionKey:     sessionKey,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
-	})
+	}
+	if len(attachments) == 1 {
+		params.Attachments = attachments[0]
+	}
+
+	_, err := c.client.ChatSend(ctx, params)
 	if err != nil {
 		return "", fmt.Errorf("openclaw: chat send: %w", err)
 	}

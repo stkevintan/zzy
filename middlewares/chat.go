@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -38,17 +39,39 @@ func (m *ChatMiddleware) Priority() int {
 }
 
 func (m *ChatMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.IncomingMessage) bool {
-	if msg.Type != wechatbot.ContentText {
+	var text string
+	var attachment json.RawMessage
+	switch msg.Type {
+	case wechatbot.ContentText:
+		text = msg.Text
+	case wechatbot.ContentVoice:
+		sb := strings.Builder{}
+		for _, voice := range msg.Voices {
+			sb.WriteString(voice.Text)
+		}
+		text = sb.String()
+	case wechatbot.ContentImage:
+		fallthrough
+	case wechatbot.ContentVideo:
+		fallthrough
+	case wechatbot.ContentFile:
+		media, err := m.Bot.Download(ctx, msg)
+		if err != nil {
+			slog.Error("failed to download media", "user_id", msg.UserID, "error", err)
+			return false
+		}
+		attachment = media.Data
+	default:
 		return false
 	}
 
-	text := strings.TrimSpace(msg.Text)
-	if text == "" {
+	text = strings.TrimSpace(text)
+	if text == "" && attachment == nil {
 		return false
 	}
 
 	sessionKey := m.getSessionKey(msg.UserID)
-	response, err := m.openclaw.Chat(ctx, sessionKey, text)
+	response, err := m.openclaw.Chat(ctx, sessionKey, text, attachment)
 	if err != nil && strings.Contains(err.Error(), "websocket: close sent") {
 		slog.Warn("websocket closed, reconnecting", "user_id", msg.UserID)
 		if rerr := m.openclaw.Reconnect(ctx); rerr != nil {
@@ -56,7 +79,7 @@ func (m *ChatMiddleware) HandleMessage(ctx context.Context, msg *wechatbot.Incom
 			m.Reply(ctx, msg, "处理消息失败，请稍后重试")
 			return true
 		}
-		response, err = m.openclaw.Chat(ctx, sessionKey, text)
+		response, err = m.openclaw.Chat(ctx, sessionKey, text, attachment)
 	}
 	if err != nil {
 		slog.Error("openclaw chat failed", "user_id", msg.UserID, "error", err)
